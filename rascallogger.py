@@ -9,7 +9,7 @@ try:
 except ImportError:
     import SocketServer as socketserver
 
-logging.basicConfig(filename='example.log',level=logging.DEBUG)
+#logging.basicConfig(filename='example.log',level=logging.DEBUG)
 
 class SQLiteModel:
     def __init__(self, database):
@@ -26,7 +26,7 @@ class SQLiteModel:
 	self.conn.close()
    
 
-class bribonlogger(DNSLogger):
+class rascallogger(DNSLogger):
 
     def __init__(self,log,prefix, domain, database):
 	DNSLogger.__init__(self, log, prefix)
@@ -49,7 +49,7 @@ class bribonlogger(DNSLogger):
                     data = "enc-" + encoded
                 part = domainArr[1]
                 session = domainArr[2]
-                logging.info("DATA -> %s[%s].%s: %s\n" % (clientip, session, part, data,))
+                print("DATA -> %s[%s].%s: %s\n" % (clientip, session, part, data,))
 		dataArr = [now_str, data, part, session, clientip, self.domain]
 		self.db.insert(dataArr)
 	    else:
