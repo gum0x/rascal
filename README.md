@@ -18,9 +18,9 @@ Start the server
 ```
 
 Where:
->  --domain <domain>: quieries within this domain will be parsed and recorded
->  -i "<zone register>"
->  --logger <logger class>: dynamically loaded class to log messages.
+>  `--domain <domain>`: quieries within this domain will be parsed and recorded
+>  `-i "<zone register>"`
+>  `--logger <logger class>`: dynamically loaded class to log messages.
 
 Generate a payload
 ```bash
@@ -33,7 +33,7 @@ Inject the payload within a XSS and wait until you have receive queries from vic
 ## Exfiltration details
 
 Query format is the following one:
->  <hex data>.<part>.<session>.<domain>
+>  `<hex data>.<part>.<session>.<domain>`
 
 Where:
 - hex data: data codified in hexadecimal
