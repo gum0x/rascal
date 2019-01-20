@@ -12,9 +12,10 @@ pip install -r requeriments.txt
 ```
 
 ## Usage
+### Server
 Start the server
 ```bash
-python bribon.py --db /usr/local/bribon/bribon.db --domain evil.local -i "*.evil.com IN A 10.22.3.55" --logger bribonlogger
+python rascal.py --db /usr/local/bribon/bribon.db --domain evil.local -i "*.evil.com IN A 10.22.3.55" --logger bribonlogger
 ```
 
 Where:
@@ -25,9 +26,10 @@ Where:
 
 -  `--logger <logger class>`: dynamically loaded class to log messages.
 
+### Command line helper
 Generate a payload
 ```bash
-python rascal.py --code --domain <domain> 
+python rascalcl.py --code --domain <domain> 
 ```
 
 Inject the payload within a XSS and wait until you have receive queries from victim. 

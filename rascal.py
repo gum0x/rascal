@@ -57,7 +57,7 @@ if __name__ == '__main__':
                     help="Log prefix (timestamp/handler/resolver) (default: False)")
     p.add_argument("--db",
                     help="SQLite DB file")
-    p.add_argument("--logger", default="bribonlogger",
+    p.add_argument("--logger", default="rascallogger",
                     help="Logger class to impoert")
     p.add_argument("--logfile", default="./server.log",
                     help="Log file to write")
