@@ -10,7 +10,7 @@ except ImportError:
     import SocketServer as socketserver
 
 #logging.basicConfig(filename='example.log',level=logging.DEBUG)
-
+""" BUG: Concurrency error?
 class SQLiteModel:
     def __init__(self, database):
 	self.database = database
@@ -26,7 +26,7 @@ class SQLiteModel:
         c.execute("INSERT INTO " + self.table + " VALUES(?,?,?,?,?,?)",data)
 	self.conn.commit()
 	self.conn.close()
-   
+ """
 
 class rascallogger(DNSLogger):
 
@@ -34,7 +34,7 @@ class rascallogger(DNSLogger):
 	DNSLogger.__init__(self, log, prefix)
 	self.domain = domain
 	self.database = database
-	self.db = SQLiteModel(database)
+	#self.db = SQLiteModel(database)
 	self.table = "queries"
 
     def log_request(self,handler,request):

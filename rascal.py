@@ -14,7 +14,7 @@ from dnslib.server import DNSServer,DNSHandler,BaseResolver,DNSLogger
 from dnslib.label import DNSLabel
 from dnslib.intercept import InterceptResolver
 
-logging.basicConfig(filename='example.log',level=logging.DEBUG)
+logging.basicConfig(level=logging.DEBUG)
 
 if __name__ == '__main__':
 
